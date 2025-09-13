@@ -6,7 +6,7 @@ const GiftCard = require('./giftCard');
 const LastPayment = require('./lastPayment');
 const fs = require('fs');
 const path = require('path');
-const PedStatus = require('./ped/pedStatus');
+const PedStatus = require('./pedStatus');
 
 class PED {
 

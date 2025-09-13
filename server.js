@@ -12,7 +12,34 @@ function main() {
     // Initialize and start the PED simulator
     console.log('Starting PED Simulator Node.js server...');
     const sharedStatus = new PedStatus();
-    startPortListener(5015, sharedStatus);
+
+    // Primary port (5015) with C#-style protocol
+    const PrimaryCommands = require('./ped/primaryCommands');
+    const PedParameters = require('./ped/pedParameters');
+    const { parseXml } = require('./utils/xmlUtils');
+    const LogManager = require('./logging/logManager');
+    const pedParams = new PedParameters();
+    const primary = new PrimaryCommands(sharedStatus, pedParams);
+    const primaryLogger = new LogManager();
+    const primaryServer = require('net').createServer(socket => {
+        primaryLogger.log('Primary: Client connected');
+        socket.on('data', async data => {
+            let xml = data.toString();
+            // C# sim strips leading '?'
+            while (xml[0] === '?') xml = xml.slice(1);
+            primaryLogger.log('Primary: Received XML: ' + xml);
+            try {
+                const obj = await parseXml(xml);
+                const resp = primary.handle(obj);
+                socket.write(resp);
+            } catch (e) {
+                primaryLogger.log('Primary: XML Parse Error: ' + e);
+                socket.write('<RESPONSE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><RESULT_CODE>-2</RESULT_CODE><RESULT>XML Format Incorrect</RESULT><RESPONSE_TEXT/></RESPONSE>');
+            }
+        });
+        socket.on('end', () => primaryLogger.log('Primary: Client disconnected'));
+    });
+    primaryServer.listen(5015, () => primaryLogger.log('Primary port listening on 5015'));
 
     // Secondary port (5016) to mirror C# SecondaryCommands
     const secondary = new SecondaryCommands(sharedStatus, {});

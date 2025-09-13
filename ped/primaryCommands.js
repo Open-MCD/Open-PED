@@ -1,8 +1,286 @@
-// Primary Commands placeholder
+// PrimaryCommands: C#-style protocol for PED Sim port 5015
+// Handles TRANSACTION XML with FUNCTION_TYPE: DEVICE, SESSION, PAYMENT, ADMIN, SAF, etc.
 
 class PrimaryCommands {
-    constructor() {
-        // TODO: Initialize primary commands
+    constructor(status, pedParams, lockObject) {
+        this.status = status;
+        this.pedParams = pedParams || {};
+        this.lock = lockObject || { _l: 0 };
+    }
+
+    handle(xmlObj) {
+        // Accepts parsed XML object, returns exact RESPONSE XML string
+        // ETRANSACTION/PAYLOAD: decrypt and process inner XML
+        if (xmlObj.ETRANSACTION && xmlObj.ETRANSACTION.PAYLOAD) {
+            try {
+                const payload = xmlObj.ETRANSACTION.PAYLOAD;
+                const iv = xmlObj.ETRANSACTION.IV || '00000000000000000000000000000000';
+                const key = this.pedParams.MacKey || '00112233445566778899AABBCCDDEEFF';
+                const { aesCbcDecrypt } = require('../utils/aesUtils');
+                const decrypted = aesCbcDecrypt(payload, key, iv);
+                // Recursively handle the decrypted XML
+                const { parseXml } = require('../utils/xmlUtils');
+                return parseXml(decrypted).then(obj => this.handle(obj)).catch(() => this._badXml());
+            } catch {
+                return this._badXml();
+            }
+        }
+        // Expect TRANSACTION root with FUNCTION_TYPE and COMMAND
+        const root = this._findRoot(xmlObj);
+        if (!root) return this._badXml();
+        const funcType = root.FUNCTION_TYPE;
+        const command = root.COMMAND;
+        // Encryption/security commands (REGISTER_ENCRYPTION, UNREGISTER)
+        if (command === 'REGISTER_ENCRYPTION') {
+            return this._registerEncryption(root);
+        }
+        if (command === 'UNREGISTER') {
+            return this._unregisterEncryption(root);
+        }
+        switch (funcType) {
+            case 'DEVICE':
+                return this._handleDevice(command, root);
+            case 'SESSION':
+                return this._handleSession(command, root);
+            case 'PAYMENT':
+                return this._handlePayment(command, root);
+            case 'ADMIN':
+                return this._handleAdmin(command, root);
+            case 'SAF':
+                return this._handleSaf(command, root);
+            default:
+                return this._unknownError();
+        }
+    }
+
+    _registerEncryption(root) {
+        // Expect MACKEY, MACLABEL, PAIRING_CODE fields
+        const macKey = root.MACKEY || '';
+        const macLabel = root.MACLABEL || '';
+        const pairingCode = root.PAIRING_CODE || '';
+        if (macKey && macLabel) {
+            if (this.pedParams.MacKey !== macKey || this.pedParams.MacLabel !== macLabel) {
+                this.pedParams.MacKey = macKey;
+                this.pedParams.MacLabel = macLabel;
+                this.pedParams.PairingCode = pairingCode;
+                if (typeof this.pedParams.save === 'function') this.pedParams.save();
+            }
+            return '<RESPONSE><RESPONSE_TEXT>REGISTERED</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>10001</COUNTER></RESPONSE>';
+        }
+        return '<RESPONSE><RESPONSE_TEXT>REGISTER FAILED</RESPONSE_TEXT><RESULT>ERROR</RESULT><RESULT_CODE>59010</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>10002</COUNTER></RESPONSE>';
+    }
+
+    _unregisterEncryption(root) {
+        // Clear MacKey/MacLabel/PairingCode
+        this.pedParams.MacKey = '';
+        this.pedParams.MacLabel = '';
+        this.pedParams.PairingCode = '';
+        if (typeof this.pedParams.save === 'function') this.pedParams.save();
+        return '<RESPONSE><RESPONSE_TEXT>UNREGISTERED</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>10003</COUNTER></RESPONSE>';
+    }
+
+    _handleAdmin(command, root) {
+        const now = new Date();
+        const text = now.toISOString().replace(/[-:T]/g, '').slice(0, 14);
+        if (command === 'SETTIME') {
+            return `<RESPONSE><RESPONSE_TEXT>SUCCESS</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>12099</COUNTER><TIME>${text}</TIME></RESPONSE>`;
+        }
+        if (command === 'LANE_CLOSED') {
+            return '<RESPONSE><RESPONSE_TEXT>Lane Closed</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>12104</COUNTER></RESPONSE>';
+        }
+        if (command === 'APPLYUPDATES') {
+            // Simulate no updates available
+            return '<RESPONSE><RESPONSE_TEXT>No Updates Available on Terminal to Apply</RESPONSE_TEXT><RESULT>ERROR</RESULT><RESULT_CODE>59052</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>1</COUNTER></RESPONSE>';
+        }
+        return this._unknownError();
+    }
+
+    _handleSaf(command, root) {
+        if (command === 'QUERY') {
+            return '<RESPONSE><RESPONSE_TEXT>0 SAF RECORDS FOUND</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>1971</COUNTER><RECORD_COUNT>0</RECORD_COUNT><TOTAL_AMOUNT>0.00</TOTAL_AMOUNT><RECORDS></RESPONSE>';
+        }
+        return this._unknownError();
+    }
+
+    // Stubs for GIFT, VOID, CREDIT (to be expanded)
+
+    _handleDevice(command, root) {
+        if (command === 'VERSION') {
+            return '<RESPONSE><RESPONSE_TEXT>Version Information Captured</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>12101</COUNTER><VERSION_INFO>RDI Simulator.  Better than the real thing</VERSION_INFO></RESPONSE>';
+        }
+        if (command === 'GET_PARM') {
+            // Only support a few params for now
+            let param = '';
+            try {
+                const req = root.PARAM || '';
+                const arr = req.split('|');
+                param = arr.map(k => {
+                    if (k === 'transactionfloorlimit') return 'transactionfloorlimit=30';
+                    if (k === 'totalfloorlimit') return 'totalfloorlimit=5000';
+                    if (k === 'dayslimit') return 'dayslimit=1';
+                    return '';
+                }).filter(Boolean).join('|');
+            } catch {}
+            return `<RESPONSE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>1</COUNTER><RESULT_CODE>-1</RESULT_CODE><RESULT>OK</RESULT><PARAM>${param}</PARAM></RESPONSE>`;
+        }
+        return this._unknownError();
+    }
+
+    _handleSession(command, root) {
+        if (command === 'START') {
+            if (!this.status.SessionOpen) {
+                this.status.SessionOpen = true;
+                return '<RESPONSE><RESPONSE_TEXT>Session Started</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>13239</COUNTER></RESPONSE>';
+            } else {
+                return '<RESPONSE><RESPONSE_TEXT>SESSION in progress</RESPONSE_TEXT><RESULT>BUSY</RESULT><RESULT_CODE>59003</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>13240</COUNTER></RESPONSE>';
+            }
+        }
+        if (command === 'FINISH') {
+            if (this.status.SessionOpen) {
+                this.status.SessionOpen = false;
+                return '<RESPONSE><RESPONSE_TEXT>Session Finished</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>13241</COUNTER></RESPONSE>';
+            } else {
+                return '<RESPONSE><RESPONSE_TEXT>No Session</RESPONSE_TEXT><RESULT>FAILED</RESULT><RESULT_CODE>59004</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>13241</COUNTER></RESPONSE>';
+            }
+        }
+        return this._unknownError();
+    }
+
+    _handlePayment(command, root) {
+        // Use GiftCard and LastPayment modules for state (ensure instances)
+        if (!this.giftCard || typeof this.giftCard !== 'object' || typeof this.giftCard.getInfo !== 'function') {
+            try {
+                const GiftCard = require('./giftCard');
+                this.giftCard = new GiftCard();
+            } catch {}
+        }
+        if (!this.lastPayment || typeof this.lastPayment !== 'object' || typeof this.lastPayment.getInfo !== 'function') {
+            try {
+                const LastPayment = require('./lastPayment');
+                this.lastPayment = new LastPayment();
+            } catch {}
+        }
+        // CREDIT/CAPTURE
+        if (command === 'CAPTURE' || command === 'CREDIT') {
+            if (this.status.DeviceBusy) return this._deviceIsBusy();
+            if (this.status.UserCancel) return this._cancelledByCustomer();
+            if (!this.status.ApprovalMode) return this._decline();
+            // Simulate approval, update last payment
+            const now = new Date();
+            const time = now.toTimeString().slice(0,8);
+            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            const seq = '000108';
+            const auth = 'OK9841';
+            const troutd = '000108';
+            const ctroutd = '74';
+            const cardToken = '1234567890124321';
+            const acctNum = '************1111';
+            const expMonth = '01';
+            const expYear = '30';
+            if (this.lastPayment && typeof this.lastPayment.getInfo === 'function') {
+                this.lastPayment.amount = 42.50;
+                this.lastPayment.date = date;
+                this.lastPayment.method = 'CreditCard';
+            }
+            return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>12052</COUNTER><TRANS_SEQ_NUM>${seq}</TRANS_SEQ_NUM><INTRN_SEQ_NUM>${seq}</INTRN_SEQ_NUM><AUTH_CODE>${auth}</AUTH_CODE><TROUTD>${troutd}</TROUTD><CTROUTD>${ctroutd}</CTROUTD><PAYMENT_TYPE>CREDIT</PAYMENT_TYPE><CARD_TOKEN>${cardToken}</CARD_TOKEN><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>42.50</APPROVED_AMOUNT><PAYMENT_MEDIA>VISA</PAYMENT_MEDIA><ACCT_NUM>${acctNum}</ACCT_NUM><CARD_EXP_MONTH>${expMonth}</CARD_EXP_MONTH><CARD_EXP_YEAR>${expYear}</CARD_EXP_YEAR><CARD_ENTRY_MODE>Swiped</CARD_ENTRY_MODE><PINLESSDEBIT>C</PINLESSDEBIT></RESPONSE>`;
+        }
+        // GIFT (simulate purchase)
+        if (command === 'GIFT') {
+            if (this.status.DeviceBusy) return this._deviceIsBusy();
+            if (!this.giftCard) return this._unknownError();
+            if (this.giftCard && typeof this.giftCard.balance === 'number') {
+                if (this.giftCard.balance < 10) {
+                    return '<RESPONSE><RESPONSE_TEXT>INSUFFICIENT FUNDS</RESPONSE_TEXT><RESULT>DECLINED</RESULT><RESULT_CODE>100</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS></RESPONSE>';
+                }
+                this.giftCard.balance -= 10;
+            }
+            if (this.lastPayment && typeof this.lastPayment.getInfo === 'function') {
+                this.lastPayment.amount = 10.00;
+                this.lastPayment.date = (new Date()).toISOString().slice(0,10).replace(/-/g, '.');
+                this.lastPayment.method = 'GiftCard';
+            }
+            const bal = this.giftCard && typeof this.giftCard.balance === 'number' ? this.giftCard.balance.toFixed(2) : '0.00';
+            return `<RESPONSE><RESPONSE_TEXT>GIFT APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><GIFT_BALANCE>${bal}</GIFT_BALANCE></RESPONSE>`;
+        }
+        // GIFT ACTIVATE
+        if (command === 'ACTIVATE') {
+            if (this.status.DeviceBusy) return this._deviceIsBusy();
+            const now = new Date();
+            const time = now.toTimeString().slice(0,8);
+            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            let amount = 0;
+            if (root.TRANS_AMOUNT) amount = parseFloat(root.TRANS_AMOUNT);
+            if (isNaN(amount) || amount <= 0) amount = 0;
+            this.giftCard.balance = amount;
+            return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>13671</COUNTER><TRANS_SEQ_NUM>000478</TRANS_SEQ_NUM><INTRN_SEQ_NUM>000478</INTRN_SEQ_NUM><AUTH_CODE>000500</AUTH_CODE><TROUTD>000478</TROUTD><CTROUTD>297</CTROUTD><PAYMENT_TYPE>GIFT</PAYMENT_TYPE><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>${amount.toFixed(2)}</APPROVED_AMOUNT><AVAILABLE_BALANCE>${this.giftCard.balance.toFixed(2)}</AVAILABLE_BALANCE><PAYMENT_MEDIA>GIFT</PAYMENT_MEDIA><ACCT_NUM>${this.giftCard.number}</ACCT_NUM><CARDHOLDER>*********</CARDHOLDER><EMBOSSED_ACCT_NUM>****************</EMBOSSED_ACCT_NUM><CARD_EXP_MONTH>01</CARD_EXP_MONTH><CARD_EXP_YEAR>00</CARD_EXP_YEAR><CARD_ENTRY_MODE>Swiped</CARD_ENTRY_MODE></RESPONSE>`;
+        }
+        // GIFT ADD_VALUE (reload)
+        if (command === 'ADD_VALUE') {
+            if (this.status.DeviceBusy) return this._deviceIsBusy();
+            const now = new Date();
+            const time = now.toTimeString().slice(0,8);
+            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            let amount = 0;
+            if (root.TRANS_AMOUNT) amount = parseFloat(root.TRANS_AMOUNT);
+            if (isNaN(amount) || amount <= 0) amount = 0;
+            this.giftCard.balance += amount;
+            return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>13709</COUNTER><TRANS_SEQ_NUM>000486</TRANS_SEQ_NUM><INTRN_SEQ_NUM>000486</INTRN_SEQ_NUM><AUTH_CODE>010500</AUTH_CODE><TROUTD>000486</TROUTD><CTROUTD>303</CTROUTD><PAYMENT_TYPE>GIFT</PAYMENT_TYPE><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>${amount.toFixed(2)}</APPROVED_AMOUNT><AVAILABLE_BALANCE>${this.giftCard.balance.toFixed(2)}</AVAILABLE_BALANCE><PAYMENT_MEDIA>GIFT</PAYMENT_MEDIA><ACCT_NUM>${this.giftCard.number}</ACCT_NUM><CARDHOLDER>*********</CARDHOLDER><EMBOSSED_ACCT_NUM>****************</EMBOSSED_ACCT_NUM><CARD_EXP_MONTH>01</CARD_EXP_MONTH><CARD_EXP_YEAR>00</CARD_EXP_YEAR><CARD_ENTRY_MODE>Swiped</CARD_ENTRY_MODE></RESPONSE>`;
+        }
+        // GIFT BALANCE
+        if (command === 'BALANCE') {
+            if (this.status.DeviceBusy) return this._deviceIsBusy();
+            const now = new Date();
+            const time = now.toTimeString().slice(0,8);
+            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            const bal = this.giftCard && typeof this.giftCard.balance === 'number' ? this.giftCard.balance.toFixed(2) : '0.00';
+            return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>13685</COUNTER><TRANS_SEQ_NUM>000483</TRANS_SEQ_NUM><INTRN_SEQ_NUM>000483</INTRN_SEQ_NUM><AUTH_CODE>000500</AUTH_CODE><TROUTD>000483</TROUTD><CTROUTD>300</CTROUTD><PAYMENT_TYPE>GIFT</PAYMENT_TYPE><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>0.00</APPROVED_AMOUNT><AVAILABLE_BALANCE>${bal}</AVAILABLE_BALANCE><PAYMENT_MEDIA>GIFT</PAYMENT_MEDIA><ACCT_NUM>${this.giftCard.number}</ACCT_NUM><CARDHOLDER>*********</CARDHOLDER><EMBOSSED_ACCT_NUM>****************</EMBOSSED_ACCT_NUM><CARD_EXP_MONTH>01</CARD_EXP_MONTH><CARD_EXP_YEAR>00</CARD_EXP_YEAR><CARD_ENTRY_MODE>Swiped</CARD_ENTRY_MODE></RESPONSE>`;
+        }
+        // GIFT CLOSE
+        if (command === 'GIFT_CLOSE') {
+            if (this.status.DeviceBusy) return this._deviceIsBusy();
+            const now = new Date();
+            const time = now.toTimeString().slice(0,8);
+            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>13769</COUNTER><TRANS_SEQ_NUM>000497</TRANS_SEQ_NUM><INTRN_SEQ_NUM>000497</INTRN_SEQ_NUM><AUTH_CODE>000000</AUTH_CODE><TROUTD>000497</TROUTD><CTROUTD>314</CTROUTD><PAYMENT_TYPE>GIFT</PAYMENT_TYPE><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>0.00</APPROVED_AMOUNT><AVAILABLE_BALANCE>0.00</AVAILABLE_BALANCE><PAYMENT_MEDIA>GIFT</PAYMENT_MEDIA><ACCT_NUM>${this.giftCard.number}</ACCT_NUM><CARDHOLDER>*********</CARDHOLDER><EMBOSSED_ACCT_NUM>****************</EMBOSSED_ACCT_NUM><CARD_EXP_MONTH>01</CARD_EXP_MONTH><CARD_EXP_YEAR>00</CARD_EXP_YEAR><CARD_ENTRY_MODE>Swiped</CARD_ENTRY_MODE></RESPONSE>`;
+        }
+        // VOID (simulate voiding last payment)
+        if (command === 'VOID') {
+            if (this.status.DeviceBusy) return this._deviceIsBusy();
+            const now = new Date();
+            const time = now.toTimeString().slice(0,8);
+            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            const seq = '000504';
+            const auth = '000500';
+            const troutd = '000504';
+            const ctroutd = '319';
+            const paymentType = this.lastPayment && this.lastPayment.method === 'CreditCard' ? 'CREDIT' : 'GIFT';
+            const acctNum = '************1111';
+            const amount = this.lastPayment ? this.lastPayment.amount : 0;
+            return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>VOIDED</RESULT><RESULT_CODE>7</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>13796</COUNTER><TRANS_SEQ_NUM>${seq}</TRANS_SEQ_NUM><INTRN_SEQ_NUM>${seq}</INTRN_SEQ_NUM><AUTH_CODE>${auth}</AUTH_CODE><TROUTD>${troutd}</TROUTD><CTROUTD>${ctroutd}</CTROUTD><PAYMENT_TYPE>${paymentType}</PAYMENT_TYPE><BANK_USERDATA>011/00/04/PPayCL/</BANK_USERDATA><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>${amount}</APPROVED_AMOUNT><EMBOSSED_ACCT_NUM>${acctNum}</EMBOSSED_ACCT_NUM></RESPONSE>`;
+        }
+        return this._unknownError();
+    }
+
+    _findRoot(obj) {
+        // Accepts { TRANSACTION: { ... } } or just { ... }
+        if (obj.TRANSACTION) return obj.TRANSACTION;
+        return obj;
+    }
+
+    _badXml() {
+        return '<RESPONSE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><RESULT_CODE>-2</RESULT_CODE><RESULT>XML Format Incorrect</RESULT><RESPONSE_TEXT/></RESPONSE>';
+    }
+    _unknownError() {
+        return '<RESPONSE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><RESULT_CODE>0</RESULT_CODE><RESULT>Unknown Command or error</RESULT><RESPONSE_TEXT/></RESPONSE>';
+    }
+    _deviceIsBusy() {
+        return '<RESPONSE><RESPONSE_TEXT>DEVICE IS BUSY</RESPONSE_TEXT><RESULT>BUSY</RESULT><RESULT_CODE>59002</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>13169</COUNTER></RESPONSE>';
+    }
+    _cancelledByCustomer() {
+        return '<RESPONSE><RESPONSE_TEXT>Cancelled by CUSTOMER</RESPONSE_TEXT><RESULT>CANCELLED</RESULT><RESULT_CODE>59001</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>1024</COUNTER></RESPONSE>';
+    }
+    _decline() {
+        return '<RESPONSE><RESPONSE_TEXT>DECLINE</RESPONSE_TEXT><RESULT>Error</RESULT><RESULT_CODE>6</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>116</HOST_RESPCODE><COUNTER>5643</COUNTER></RESPONSE>';
     }
 }
 
