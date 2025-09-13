@@ -1,0 +1,12 @@
+{
+  "name": "node-ped-sim",
+  "version": "1.0.0",
+  "description": "Node.js PED Simulator (Open-PED)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "fast-xml-parser": "^4.3.5"
+  }
+}
