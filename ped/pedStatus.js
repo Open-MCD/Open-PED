@@ -13,6 +13,9 @@ class PedStatus {
         this.UpdateStatus = 0; // 0..6
         this.UserCancel = false;
         this.CardSwiped = false;
+        this.Connected = false;
+        this.LastCommand = '';
+        this.Counter = 0;
 
         // Active card minimal fields
         this.ActiveCard = {
@@ -23,5 +26,7 @@ class PedStatus {
         };
     }
 }
+
+module.exports = PedStatus;
 
 module.exports = PedStatus;

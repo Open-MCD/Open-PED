@@ -25,6 +25,11 @@ class PrimaryCommands {
                 return this._badXml();
             }
         }
+        // Support <REQUEST><COMMAND>LANE_CLOSE</COMMAND> for cashless integration
+        if (xmlObj.REQUEST && xmlObj.REQUEST.COMMAND === 'LANE_CLOSE') {
+            // Return the same as LANE_CLOSED for compatibility
+            return '<RESPONSE><RESPONSE_TEXT>Lane Closed</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>12104</COUNTER></RESPONSE>';
+        }
         // Expect TRANSACTION root with FUNCTION_TYPE and COMMAND
         const root = this._findRoot(xmlObj);
         if (!root) return this._badXml();
@@ -53,21 +58,67 @@ class PrimaryCommands {
         }
     }
 
-    _registerEncryption(root) {
+    async _registerEncryption(root) {
         // Expect MACKEY, MACLABEL, PAIRING_CODE fields
         const macKey = root.MACKEY || '';
         const macLabel = root.MACLABEL || '';
         const pairingCode = root.PAIRING_CODE || '';
-        if (macKey && macLabel) {
-            if (this.pedParams.MacKey !== macKey || this.pedParams.MacLabel !== macLabel) {
+        if (!macKey || !macLabel) {
+            return '<RESPONSE><RESPONSE_TEXT>REGISTER FAILED</RESPONSE_TEXT><RESULT>ERROR</RESULT><RESULT_CODE>59010</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>10002</COUNTER></RESPONSE>';
+        }
+        // Simulate C# logic: calculate pairing code from public key (SHA1 digest, first 4 hex chars)
+        let pubKey = root.PUBLIC_KEY || root.KEY || '';
+        if (!pubKey) {
+            return '<RESPONSE><RESPONSE_TEXT>NO PUBLIC KEY</RESPONSE_TEXT><RESULT>ERROR</RESULT><RESULT_CODE>59012</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>10002</COUNTER></RESPONSE>';
+        }
+        const crypto = require('crypto');
+        let code = '';
+        try {
+            const keyBuf = Buffer.from(pubKey, 'base64');
+            const sha1 = crypto.createHash('sha1').update(keyBuf).digest();
+            let hex1 = sha1[0].toString(16).toUpperCase().padStart(2, '0');
+            let hex2 = sha1[1].toString(16).toUpperCase().padStart(2, '0');
+            code = (hex1 + hex2).substring(0, 4);
+        } catch {
+            return '<RESPONSE><RESPONSE_TEXT>BAD PUBLIC KEY</RESPONSE_TEXT><RESULT>ERROR</RESULT><RESULT_CODE>59013</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>10002</COUNTER></RESPONSE>';
+        }
+        // Show pairing code in web UI and wait for user input
+        let webUi;
+        try {
+            webUi = require('../web/server');
+        } catch {
+            // fallback to terminal prompt if web UI not running
+            const readline = require('readline');
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            return new Promise(resolve => {
+                console.log('\n=== PED PAIRING REQUIRED ===');
+                console.log('Pairing code for POS: ' + code);
+                rl.question('Enter pairing code: ', input => {
+                    rl.close();
+                    if (input.trim().toUpperCase().substring(0, 4) === code) {
+                        this.pedParams.MacKey = macKey;
+                        this.pedParams.MacLabel = macLabel;
+                        this.pedParams.PairingCode = pairingCode;
+                        if (typeof this.pedParams.save === 'function') this.pedParams.save();
+                        resolve('<RESPONSE><RESPONSE_TEXT>REGISTERED</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>10001</COUNTER></RESPONSE>');
+                    } else {
+                        resolve('<RESPONSE><RESPONSE_TEXT>PAIRING CODE INCORRECT</RESPONSE_TEXT><RESULT>ERROR</RESULT><RESULT_CODE>59011</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>10002</COUNTER></RESPONSE>');
+                    }
+                });
+            });
+        }
+        // Use web UI for pairing prompt
+        return webUi.showPairingPrompt(code).then(input => {
+            if (input.trim().toUpperCase().substring(0, 4) === code) {
                 this.pedParams.MacKey = macKey;
                 this.pedParams.MacLabel = macLabel;
                 this.pedParams.PairingCode = pairingCode;
                 if (typeof this.pedParams.save === 'function') this.pedParams.save();
+                return '<RESPONSE><RESPONSE_TEXT>REGISTERED</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>10001</COUNTER></RESPONSE>';
+            } else {
+                return '<RESPONSE><RESPONSE_TEXT>PAIRING CODE INCORRECT</RESPONSE_TEXT><RESULT>ERROR</RESULT><RESULT_CODE>59011</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>10002</COUNTER></RESPONSE>';
             }
-            return '<RESPONSE><RESPONSE_TEXT>REGISTERED</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>10001</COUNTER></RESPONSE>';
-        }
-        return '<RESPONSE><RESPONSE_TEXT>REGISTER FAILED</RESPONSE_TEXT><RESULT>ERROR</RESULT><RESULT_CODE>59010</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>10002</COUNTER></RESPONSE>';
+        });
     }
 
     _unregisterEncryption(root) {

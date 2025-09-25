@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PED Simulator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="main">
+    <h1>PED Simulator</h1>
+    <div id="pairing-section">
+      <h2>Pairing</h2>
+      <div id="pairing-code-container">
+        <span id="pairing-code-label">Pairing Code:</span>
+        <span id="pairing-code"></span>
+      </div>
+      <div id="pairing-input-container" style="display:none;">
+        <input id="pairing-input" maxlength="6" />
+        <button id="pairing-submit">Submit</button>
+      </div>
+    </div>
+    <!-- Gift Card UI section -->
+    <div id="giftcard-ui"></div>
+    <!-- Device Status UI section -->
+    <div id="status-ui"></div>
+    <!-- Transaction Log UI section -->
+    <div id="log-ui"></div>
+    <!-- Modal UI section -->
+    <div id="modal-ui"></div>
+    <!-- More UI sections will go here -->
+  </div>
+  <script src="main.js"></script>
+  <script src="giftcard.js"></script>
+  <script src="status.js"></script>
+  <script src="log.js"></script>
+  <script src="modal.js"></script>
+  <script>
+    // Load gift card HTML into the UI
+    fetch('giftcard.html').then(r => r.text()).then(html => {
+      document.getElementById('giftcard-ui').innerHTML = html;
+    });
+    // Load status HTML into the UI
+    fetch('status.html').then(r => r.text()).then(html => {
+      document.getElementById('status-ui').innerHTML = html;
+    });
+    // Load log HTML into the UI
+    fetch('log.html').then(r => r.text()).then(html => {
+      document.getElementById('log-ui').innerHTML = html;
+    });
+    // Load modal HTML into the UI
+    fetch('modal.html').then(r => r.text()).then(html => {
+      document.getElementById('modal-ui').innerHTML = html;
+    });
+  </script>
