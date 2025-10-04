@@ -10,7 +10,7 @@ function updateLog() {
       // Only update if new entries exist
       if (data.entries && data.entries.length !== logEntries.length) {
         logEntries = data.entries;
-        logContainer.innerHTML = '';
+        // logContainer.innerHTML = '';
         
         logEntries.forEach(entry => {
           const logEntry = document.createElement('div');
@@ -28,11 +28,11 @@ function updateLog() {
             ${entry.details ? `<div class="log-details">${entry.details}</div>` : ''}
           `;
           
-          logContainer.appendChild(logEntry);
+          // logContainer.appendChild(logEntry);
         });
         
         // Scroll to bottom to show latest entries
-        logContainer.scrollTop = logContainer.scrollHeight;
+        // logContainer.scrollTop = logContainer.scrollHeight;
       }
     });
 }

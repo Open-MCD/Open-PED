@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PED Simulator</title>
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <div id="main">
     <h1>PED Simulator</h1>
@@ -30,11 +32,7 @@
     <div id="modal-ui"></div>
     <!-- More UI sections will go here -->
   </div>
-  <script src="main.js"></script>
-  <script src="giftcard.js"></script>
-  <script src="status.js"></script>
-  <script src="log.js"></script>
-  <script src="modal.js"></script>
+
   <script>
     // Load gift card HTML into the UI
     fetch('giftcard.html').then(r => r.text()).then(html => {
@@ -53,3 +51,9 @@
       document.getElementById('modal-ui').innerHTML = html;
     });
   </script>
+  <script src="main.js"></script>
+  <script src="giftcard.js"></script>
+  <script src="status.js"></script>
+  <script src="log.js"></script>
+  <script src="modal.js"></script>
+</body>

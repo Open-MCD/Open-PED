@@ -3,13 +3,13 @@ async function pollPairingPrompt() {
   const res = await fetch('/api/pairing');
   const data = await res.json();
   if (data.code) {
-    document.getElementById('idle-section').classList.add('hidden');
+    // document.getElementById('idle-section').classList.add('hidden');
     document.getElementById('pairing-section').classList.remove('hidden');
     document.getElementById('pairing-code-display').textContent = data.code;
   } else {
     document.getElementById('pairing-section').classList.add('hidden');
-    document.getElementById('idle-section').classList.remove('hidden');
-    document.getElementById('pairing-status').textContent = '';
+    // document.getElementById('idle-section').classList.remove('hidden');
+    // document.getElementById('pairing-status').textContent = '';
     document.getElementById('pairing-input').value = '';
   }
 }

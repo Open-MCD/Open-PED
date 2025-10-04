@@ -4,8 +4,8 @@ function updateGiftCard() {
   fetch('/api/giftcard')
     .then(res => res.json())
     .then(data => {
-      document.getElementById('giftcard-value').textContent = data.value.toFixed(2);
-      document.getElementById('giftcard-status').textContent = data.status;
+      // document.getElementById('giftcard-value').textContent = data.value.toFixed(2);
+      // document.getElementById('giftcard-status').textContent = data.status;
     });
 }
 
