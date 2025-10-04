@@ -8,20 +8,22 @@ class PrimaryCommands {
         this.lock = lockObject || { _l: 0 };
     }
 
-    handle(xmlObj) {
+    async handle(xmlObj) {
+        var decryptedPayload 
         // Accepts parsed XML object, returns exact RESPONSE XML string
         // ETRANSACTION/PAYLOAD: decrypt and process inner XML
         if (xmlObj.ETRANSACTION && xmlObj.ETRANSACTION.PAYLOAD) {
             try {
                 const payload = xmlObj.ETRANSACTION.PAYLOAD;
-                const iv = xmlObj.ETRANSACTION.IV || '00000000000000000000000000000000';
+                const iv = xmlObj.ETRANSACTION.IV || new Array(16);
                 const key = this.pedParams.MacKey || '00112233445566778899AABBCCDDEEFF';
                 const { aesCbcDecrypt } = require('../utils/aesUtils');
-                const decrypted = aesCbcDecrypt(payload, key, iv);
-                // Recursively handle the decrypted XML
+                var decrypted = aesCbcDecrypt(payload, key, iv);
                 const { parseXml } = require('../utils/xmlUtils');
-                return parseXml(decrypted).then(obj => this.handle(obj)).catch(() => this._badXml());
-            } catch {
+                decryptedPayload = parseXml(decrypted)
+    
+            } catch (error) {
+                console.log(error)
                 return this._badXml();
             }
         }
@@ -31,10 +33,15 @@ class PrimaryCommands {
             return '<RESPONSE><RESPONSE_TEXT>Lane Closed</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>12104</COUNTER></RESPONSE>';
         }
         // Expect TRANSACTION root with FUNCTION_TYPE and COMMAND
-        const root = this._findRoot(xmlObj);
+        
+        const root = await this._findRoot(decryptedPayload);
+        console.log(root.TRANSACTION)
         if (!root) return this._badXml();
-        const funcType = root.FUNCTION_TYPE;
-        const command = root.COMMAND;
+        const funcType = root.TRANSACTION.FUNCTION_TYPE;
+        const command = root.TRANSACTION.COMMAND;
+
+        console.log(`funcType: ${funcType}, command: ${command}`);
+
         // Encryption/security commands (REGISTER_ENCRYPTION, UNREGISTER)
         if (command === 'REGISTER_ENCRYPTION') {
             return this._registerEncryption(root);
@@ -53,12 +60,17 @@ class PrimaryCommands {
                 return this._handleAdmin(command, root);
             case 'SAF':
                 return this._handleSaf(command, root);
+            case 'SECURITY':
+                return this._handleSecurity(command, root);
             default:
                 return this._unknownError();
         }
     }
 
     async _registerEncryption(root) {
+
+        console.log(`root: ${JSON.stringify(root)}`);
+
         // Expect MACKEY, MACLABEL, PAIRING_CODE fields
         const macKey = root.MACKEY || '';
         const macLabel = root.MACLABEL || '';
@@ -143,6 +155,9 @@ class PrimaryCommands {
             // Simulate no updates available
             return '<RESPONSE><RESPONSE_TEXT>No Updates Available on Terminal to Apply</RESPONSE_TEXT><RESULT>ERROR</RESULT><RESULT_CODE>59052</RESULT_CODE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><COUNTER>1</COUNTER></RESPONSE>';
         }
+        if (command === "GET_COUNTER") {
+            return '<RESPONSE><RESPONSE_TEXT>Counter Retrieved</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>12100</COUNTER><TRANSACTION_COUNTER>12345</TRANSACTION_COUNTER><BATCH_NUMBER>67</BATCH_NUMBER></RESPONSE>';
+        }
         return this._unknownError();
     }
 
@@ -151,6 +166,44 @@ class PrimaryCommands {
             return '<RESPONSE><RESPONSE_TEXT>0 SAF RECORDS FOUND</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>1971</COUNTER><RECORD_COUNT>0</RECORD_COUNT><TOTAL_AMOUNT>0.00</TOTAL_AMOUNT><RECORDS></RESPONSE>';
         }
         return this._unknownError();
+    }
+
+    _handleSecurity(command, root) {
+        if (command == "TEST_MAC") {
+            if (this.status.SessionOpen) {
+                return `<RESPONSE>
+                            <RESPONSE_TEXT>Session in progress</RESPONSE_TEXT>
+                            <RESULT>OK</RESULT>
+                            <RESULT_CODE>59003</RESULT_CODE>
+                            <TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS>
+                            <COUNTER>13154</COUNTER>
+                        </RESPONSE>`;
+            } else {
+                return `<RESPONSE>
+                            <RESPONSE_TEXT>Match</RESPONSE_TEXT>
+                            <RESULT>OK</RESULT>
+                            <RESULT_CODE>-1</RESULT_CODE>
+                            <TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS>
+                            <COUNTER>13154</COUNTER>
+                        </RESPONSE>`;
+            }
+
+        } else if (command == "REGISTER_ENCRYPTION") {
+            return this._registerEncryption(root);
+        } else if (command == "UNREGISTER") {
+            for (let i = 0; i < macKey.length; i++) {
+                macKey[i] = 0;
+            }
+            this.pedParams.macKey = Buffer.from(macKey).toString("base64");
+            this.pedParams.save(pedParamFileName);
+            return `<RESPONSE>
+                        <RESPONSE_TEXT>Unregistered RDI_SIM</RESPONSE_TEXT>
+                        <RESULT>OK</RESULT>
+                        <RESULT_CODE>-1</RESULT_CODE>
+                        <TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS>
+                    </RESPONSE>`;
+
+        }
     }
 
     // Stubs for GIFT, VOID, CREDIT (to be expanded)
@@ -171,7 +224,7 @@ class PrimaryCommands {
                     if (k === 'dayslimit') return 'dayslimit=1';
                     return '';
                 }).filter(Boolean).join('|');
-            } catch {}
+            } catch { }
             return `<RESPONSE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>1</COUNTER><RESULT_CODE>-1</RESULT_CODE><RESULT>OK</RESULT><PARAM>${param}</PARAM></RESPONSE>`;
         }
         return this._unknownError();
@@ -198,18 +251,19 @@ class PrimaryCommands {
     }
 
     _handlePayment(command, root) {
+        console.log(root)
         // Use GiftCard and LastPayment modules for state (ensure instances)
         if (!this.giftCard || typeof this.giftCard !== 'object' || typeof this.giftCard.getInfo !== 'function') {
             try {
                 const GiftCard = require('./giftCard');
                 this.giftCard = new GiftCard();
-            } catch {}
+            } catch { }
         }
         if (!this.lastPayment || typeof this.lastPayment !== 'object' || typeof this.lastPayment.getInfo !== 'function') {
             try {
                 const LastPayment = require('./lastPayment');
                 this.lastPayment = new LastPayment();
-            } catch {}
+            } catch { }
         }
         // CREDIT/CAPTURE
         if (command === 'CAPTURE' || command === 'CREDIT') {
@@ -218,8 +272,8 @@ class PrimaryCommands {
             if (!this.status.ApprovalMode) return this._decline();
             // Simulate approval, update last payment
             const now = new Date();
-            const time = now.toTimeString().slice(0,8);
-            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            const time = now.toTimeString().slice(0, 8);
+            const date = now.toISOString().slice(0, 10).replace(/-/g, '.');
             const seq = '000108';
             const auth = 'OK9841';
             const troutd = '000108';
@@ -229,11 +283,11 @@ class PrimaryCommands {
             const expMonth = '01';
             const expYear = '30';
             if (this.lastPayment && typeof this.lastPayment.getInfo === 'function') {
-                this.lastPayment.amount = 42.50;
+                this.lastPayment.amount = root.TRANSACTION.TRANS_AMOUNT;
                 this.lastPayment.date = date;
                 this.lastPayment.method = 'CreditCard';
             }
-            return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>12052</COUNTER><TRANS_SEQ_NUM>${seq}</TRANS_SEQ_NUM><INTRN_SEQ_NUM>${seq}</INTRN_SEQ_NUM><AUTH_CODE>${auth}</AUTH_CODE><TROUTD>${troutd}</TROUTD><CTROUTD>${ctroutd}</CTROUTD><PAYMENT_TYPE>CREDIT</PAYMENT_TYPE><CARD_TOKEN>${cardToken}</CARD_TOKEN><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>42.50</APPROVED_AMOUNT><PAYMENT_MEDIA>VISA</PAYMENT_MEDIA><ACCT_NUM>${acctNum}</ACCT_NUM><CARD_EXP_MONTH>${expMonth}</CARD_EXP_MONTH><CARD_EXP_YEAR>${expYear}</CARD_EXP_YEAR><CARD_ENTRY_MODE>Swiped</CARD_ENTRY_MODE><PINLESSDEBIT>C</PINLESSDEBIT></RESPONSE>`;
+            return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>12052</COUNTER><TRANS_SEQ_NUM>${seq}</TRANS_SEQ_NUM><INTRN_SEQ_NUM>${seq}</INTRN_SEQ_NUM><AUTH_CODE>${auth}</AUTH_CODE><TROUTD>${troutd}</TROUTD><CTROUTD>${ctroutd}</CTROUTD><PAYMENT_TYPE>CREDIT</PAYMENT_TYPE><CARD_TOKEN>${cardToken}</CARD_TOKEN><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>${root.TRANSACTION.TRANS_AMOUNT}</APPROVED_AMOUNT><PAYMENT_MEDIA>VISA</PAYMENT_MEDIA><ACCT_NUM>${acctNum}</ACCT_NUM><CARD_EXP_MONTH>${expMonth}</CARD_EXP_MONTH><CARD_EXP_YEAR>${expYear}</CARD_EXP_YEAR><CARD_ENTRY_MODE>Swiped</CARD_ENTRY_MODE><PINLESSDEBIT>C</PINLESSDEBIT></RESPONSE>`;
         }
         // GIFT (simulate purchase)
         if (command === 'GIFT') {
@@ -247,7 +301,7 @@ class PrimaryCommands {
             }
             if (this.lastPayment && typeof this.lastPayment.getInfo === 'function') {
                 this.lastPayment.amount = 10.00;
-                this.lastPayment.date = (new Date()).toISOString().slice(0,10).replace(/-/g, '.');
+                this.lastPayment.date = (new Date()).toISOString().slice(0, 10).replace(/-/g, '.');
                 this.lastPayment.method = 'GiftCard';
             }
             const bal = this.giftCard && typeof this.giftCard.balance === 'number' ? this.giftCard.balance.toFixed(2) : '0.00';
@@ -257,8 +311,8 @@ class PrimaryCommands {
         if (command === 'ACTIVATE') {
             if (this.status.DeviceBusy) return this._deviceIsBusy();
             const now = new Date();
-            const time = now.toTimeString().slice(0,8);
-            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            const time = now.toTimeString().slice(0, 8);
+            const date = now.toISOString().slice(0, 10).replace(/-/g, '.');
             let amount = 0;
             if (root.TRANS_AMOUNT) amount = parseFloat(root.TRANS_AMOUNT);
             if (isNaN(amount) || amount <= 0) amount = 0;
@@ -269,8 +323,8 @@ class PrimaryCommands {
         if (command === 'ADD_VALUE') {
             if (this.status.DeviceBusy) return this._deviceIsBusy();
             const now = new Date();
-            const time = now.toTimeString().slice(0,8);
-            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            const time = now.toTimeString().slice(0, 8);
+            const date = now.toISOString().slice(0, 10).replace(/-/g, '.');
             let amount = 0;
             if (root.TRANS_AMOUNT) amount = parseFloat(root.TRANS_AMOUNT);
             if (isNaN(amount) || amount <= 0) amount = 0;
@@ -281,8 +335,8 @@ class PrimaryCommands {
         if (command === 'BALANCE') {
             if (this.status.DeviceBusy) return this._deviceIsBusy();
             const now = new Date();
-            const time = now.toTimeString().slice(0,8);
-            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            const time = now.toTimeString().slice(0, 8);
+            const date = now.toISOString().slice(0, 10).replace(/-/g, '.');
             const bal = this.giftCard && typeof this.giftCard.balance === 'number' ? this.giftCard.balance.toFixed(2) : '0.00';
             return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>13685</COUNTER><TRANS_SEQ_NUM>000483</TRANS_SEQ_NUM><INTRN_SEQ_NUM>000483</INTRN_SEQ_NUM><AUTH_CODE>000500</AUTH_CODE><TROUTD>000483</TROUTD><CTROUTD>300</CTROUTD><PAYMENT_TYPE>GIFT</PAYMENT_TYPE><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>0.00</APPROVED_AMOUNT><AVAILABLE_BALANCE>${bal}</AVAILABLE_BALANCE><PAYMENT_MEDIA>GIFT</PAYMENT_MEDIA><ACCT_NUM>${this.giftCard.number}</ACCT_NUM><CARDHOLDER>*********</CARDHOLDER><EMBOSSED_ACCT_NUM>****************</EMBOSSED_ACCT_NUM><CARD_EXP_MONTH>01</CARD_EXP_MONTH><CARD_EXP_YEAR>00</CARD_EXP_YEAR><CARD_ENTRY_MODE>Swiped</CARD_ENTRY_MODE></RESPONSE>`;
         }
@@ -290,16 +344,16 @@ class PrimaryCommands {
         if (command === 'GIFT_CLOSE') {
             if (this.status.DeviceBusy) return this._deviceIsBusy();
             const now = new Date();
-            const time = now.toTimeString().slice(0,8);
-            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            const time = now.toTimeString().slice(0, 8);
+            const date = now.toISOString().slice(0, 10).replace(/-/g, '.');
             return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>13769</COUNTER><TRANS_SEQ_NUM>000497</TRANS_SEQ_NUM><INTRN_SEQ_NUM>000497</INTRN_SEQ_NUM><AUTH_CODE>000000</AUTH_CODE><TROUTD>000497</TROUTD><CTROUTD>314</CTROUTD><PAYMENT_TYPE>GIFT</PAYMENT_TYPE><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>0.00</APPROVED_AMOUNT><AVAILABLE_BALANCE>0.00</AVAILABLE_BALANCE><PAYMENT_MEDIA>GIFT</PAYMENT_MEDIA><ACCT_NUM>${this.giftCard.number}</ACCT_NUM><CARDHOLDER>*********</CARDHOLDER><EMBOSSED_ACCT_NUM>****************</EMBOSSED_ACCT_NUM><CARD_EXP_MONTH>01</CARD_EXP_MONTH><CARD_EXP_YEAR>00</CARD_EXP_YEAR><CARD_ENTRY_MODE>Swiped</CARD_ENTRY_MODE></RESPONSE>`;
         }
         // VOID (simulate voiding last payment)
         if (command === 'VOID') {
             if (this.status.DeviceBusy) return this._deviceIsBusy();
             const now = new Date();
-            const time = now.toTimeString().slice(0,8);
-            const date = now.toISOString().slice(0,10).replace(/-/g, '.');
+            const time = now.toTimeString().slice(0, 8);
+            const date = now.toISOString().slice(0, 10).replace(/-/g, '.');
             const seq = '000504';
             const auth = '000500';
             const troutd = '000504';
@@ -318,8 +372,8 @@ class PrimaryCommands {
         return obj;
     }
 
-    _badXml() {
-        return '<RESPONSE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><RESULT_CODE>-2</RESULT_CODE><RESULT>XML Format Incorrect</RESULT><RESPONSE_TEXT/></RESPONSE>';
+    _badXml(error) {
+        return `<RESPONSE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><RESULT_CODE>-2</RESULT_CODE><RESULT>${error}</RESULT><RESPONSE_TEXT/></RESPONSE>`;
     }
     _unknownError() {
         return '<RESPONSE><TERMINATION_STATUS>FAILURE</TERMINATION_STATUS><RESULT_CODE>0</RESULT_CODE><RESULT>Unknown Command or error</RESULT><RESPONSE_TEXT/></RESPONSE>';
