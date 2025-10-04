@@ -245,6 +245,7 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
+  display: none; /* Hidden by default */
 }
 
 .modal-content {
