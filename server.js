@@ -7,6 +7,10 @@ const { parseXml } = require('./utils/xmlUtils');
 const SecondaryCommands = require('./ped/secondaryCommands');
 const PedStatus = require('./ped/pedStatus');
 const LogManager = require('./logging/logManager');
+const { WebSocketServer } = require('ws');
+
+const webLogger = new LogManager();
+var websocketArray = []
 
 // Global state for web UI integration
 let globalState = {
@@ -28,8 +32,7 @@ function showPopupInWebUI(title, message, type = 'info') {
         globalState.webLogger('popup', JSON.stringify({ title, message, type }));
     }
 }
-
-function main() {
+async function main() {
     // Initialize and start the PED simulator
     console.log('Starting PED Simulator Node.js server...');
     const sharedStatus = new PedStatus();
@@ -39,7 +42,7 @@ function main() {
     try {
         const webServer = require('./web/server');
         console.log('Web UI started successfully');
-        
+
         // Set up web UI logging integration
         globalState.webLogger = (type, message, details) => {
             if (type === 'popup') {
@@ -48,26 +51,69 @@ function main() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(popup)
-                }).catch(() => {}); // Ignore errors
+                }).catch(() => { }); // Ignore errors
             } else {
                 fetch('http://localhost:8080/api/log/add', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ type, message, details })
-                }).catch(() => {}); // Ignore errors
+                }).catch(() => { }); // Ignore errors
             }
         };
     } catch (e) {
         console.log('Web UI not available:', e.message);
     }
 
-    // Primary port (5015) with C#-style protocol
-    const PrimaryCommands = require('./ped/primaryCommands');
+
+    const wss = new WebSocketServer({ port: 5014 });
+    webLogger.log('WebSocket server running on ws://localhost:5014');
+
     const PedParameters = require('./ped/pedParameters');
     const { parseXml } = require('./utils/xmlUtils');
     const LogManager = require('./logging/logManager');
     const pedParams = new PedParameters();
-    const primary = new PrimaryCommands(sharedStatus, pedParams);
+
+    const PrimaryCommands = require('./ped/primaryCommands');
+
+    var primary = new PrimaryCommands(sharedStatus, pedParams, null, null);
+
+    wss.on('connection', ws => {
+        webLogger.log('WebSocket Client connected');
+
+        primary.websocket = ws; // Use first connected WebSocket if available
+
+        ws.on('message', message => {
+  webLogger.log(`Received: ${message}`);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(message);
+  } catch {
+    console.warn("Invalid JSON:", message);
+    return;
+  }
+
+  // If the client sent back a response with an ID we’re waiting for
+  if (parsed.id && primary.pendingResponses.has(parsed.id)) {
+    const resolve = primary.pendingResponses.get(parsed.id);
+    primary.pendingResponses.delete(parsed.id);
+    resolve(parsed);  // fulfill the promise!
+    return;
+  }
+
+  // Otherwise, handle normal unsolicited messages
+  webLogger.log('No pending promise matched this ID');
+});
+
+
+        ws.on('close', () => {
+            webLogger.log('Client disconnected')
+            websocketArray = websocketArray.filter(w => w !== ws);
+        });
+    });
+
+    // Primary port (5015) with C#-style protocol
+
     globalState.primaryCommands = primary;
     globalState.giftCard = primary.giftCard;
     const primaryLogger = new LogManager();
@@ -83,7 +129,7 @@ function main() {
             logToWebUI('transaction', 'Received command', xml.length > 200 ? xml.substring(0, 200) + '...' : xml);
             try {
                 const obj = await parseXml(xml);
-                const resp = await primary.handle(obj);
+                const resp = await primary.handle(obj, wss);
                 socket.write(resp);
                 logToWebUI('transaction', 'Sent response', resp.length > 200 ? resp.substring(0, 200) + '...' : resp);
             } catch (e) {
@@ -105,7 +151,7 @@ function main() {
     });
 
     // Secondary port (5016) to mirror C# SecondaryCommands
-    const secondary = new SecondaryCommands(sharedStatus, {});
+    const secondary = new SecondaryCommands(sharedStatus, {}, websocketArray[0]);
     const logger = new LogManager();
     const server = net.createServer(socket => {
         logger.log('Secondary: Client connected');
@@ -116,7 +162,7 @@ function main() {
             logToWebUI('transaction', 'Secondary command received', xml);
             try {
                 const obj = await parseXml(xml);
-                const resp = secondary.handle(obj);
+                const resp = secondary.handle(obj, wss);
                 socket.write(resp);
                 logToWebUI('transaction', 'Secondary response sent', resp);
             } catch (e) {
@@ -140,10 +186,10 @@ function main() {
 // Export function to get current status for web UI
 function getStatus() {
     if (!globalState.status) return {};
-    
+
     const status = globalState.status;
     const primary = globalState.primaryCommands;
-    
+
     return {
         connected: status.Connected || false,
         sessionOpen: status.SessionOpen || false,
@@ -159,7 +205,7 @@ function getGiftCardInfo() {
     if (!globalState.giftCard || typeof globalState.giftCard.getInfo !== 'function') {
         return { value: 0.00, status: 'Inactive' };
     }
-    
+
     const info = globalState.giftCard.getInfo();
     return {
         value: info.balance || 0.00,

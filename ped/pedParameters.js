@@ -19,16 +19,17 @@ class PedParameters {
                 this.MacKey = decryptString(data.P1) || '';
                 this.MacLabel = decryptString(data.P2) || '';
                 // this.PairingCode = decryptString(data.PairingCode) || '';
-                console.log(`PED Parameters: MacKey=${this.MacKey}, MacLabel=${this.MacLabel}, PairingCode=${this.PairingCode}`);
             }
         } catch {}
     }
 
     save() {
         const data = {
-            MacKey: this.MacKey,
-            MacLabel: this.MacLabel,
-            PairingCode: this.PairingCode
+            P1: encryptString(this.MacKey),
+            P2: encryptString(this.MacLabel),
+            P3: '',
+            P4: '',
+            // PairingCode: encryptString(this.PairingCode)
         };
         fs.writeFileSync(this.file, JSON.stringify(data, null, 2));
     }
@@ -56,5 +57,26 @@ function decryptString(encryptedText) {
     return "";
   }
 }
+
+function encryptString(plainText) {
+  try {
+    // Keys and IV from ASCII
+    const iv = Buffer.from("dugpdonnlhyxvs;l", "ascii");
+    const key = Buffer.from("oiunnewfgfgu0u9jkl;sdjljkhsdf]ou", "ascii"); // 32 bytes
+
+    // AES-256-CBC
+    const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+    cipher.setAutoPadding(true);
+
+    let encrypted = cipher.update(plainText, "utf8", "base64");
+    encrypted += cipher.final("base64");
+
+    return encrypted;
+  } catch (e) {
+    console.log("Encryption Error:", e);
+    return "";
+  }
+}
+
 
 module.exports = PedParameters;

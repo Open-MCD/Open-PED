@@ -2,11 +2,12 @@
 // Handles commands: STATUS, REBOOT, ANY_UPDATES, UPDATE_STATUS
 
 class SecondaryCommands {
-    constructor(cashlessStatus, lockObject) {
+    constructor(cashlessStatus, lockObject, websocket) {
         this.status = cashlessStatus; // PedStatus-like object
         this.lock = lockObject || { _l: 0 }; // simple lock placeholder
         this.isStopWatchRunning = false;
         this.stopwatchStart = null; // Date when stopwatch started
+        this.websocket = websocket;
     }
 
     // Parse a JS object (from XML) and return exact XML string response

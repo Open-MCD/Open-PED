@@ -9,51 +9,63 @@
 </head>
 
 <body>
-  <div id="main">
-    <h1>PED Simulator</h1>
-    <div id="pairing-section">
-      <h2>Pairing</h2>
-      <div id="pairing-code-container">
-        <span id="pairing-code-label">Pairing Code:</span>
-        <span id="pairing-code"></span>
-      </div>
-      <div id="pairing-input-container" style="display:none;">
-        <input id="pairing-input" maxlength="6" />
-        <button id="pairing-submit">Submit</button>
-      </div>
+  <div class="wrapper">
+    <div id="main">
+      <h1>PED Simulator</h1>
     </div>
-    <!-- Gift Card UI section -->
-    <div id="giftcard-ui"></div>
-    <!-- Device Status UI section -->
-    <div id="status-ui"></div>
-    <!-- Transaction Log UI section -->
-    <div id="log-ui"></div>
-    <!-- Modal UI section -->
-    <div id="modal-ui"></div>
-    <!-- More UI sections will go here -->
-  </div>
+    <div class="housing">
+      <div class="terminal">
+        <div class="brand">Verifone</div>
+        <div id="screen">
+          <img src="https://upload.wikimedia.org/wikipedia/commons/3/36/McDonald%27s_Golden_Arches.svg"
+            alt="McDonald's Logo">
+        </div>
+        <div class="keypad">
+          <button class="key" data-letters="1OZ.">1 <small>OZ.</small></button>
+          <button class="key" data-letters="2ABC">2 <small>ABC</small></button>
+          <button class="key" data-letters="3DEF">3 <small>DEF</small></button>
 
-  <script>
-    // Load gift card HTML into the UI
-    fetch('giftcard.html').then(r => r.text()).then(html => {
-      document.getElementById('giftcard-ui').innerHTML = html;
-    });
-    // Load status HTML into the UI
-    fetch('status.html').then(r => r.text()).then(html => {
-      document.getElementById('status-ui').innerHTML = html;
-    });
-    // Load log HTML into the UI
-    fetch('log.html').then(r => r.text()).then(html => {
-      document.getElementById('log-ui').innerHTML = html;
-    });
-    // Load modal HTML into the UI
-    fetch('modal.html').then(r => r.text()).then(html => {
-      document.getElementById('modal-ui').innerHTML = html;
-    });
-  </script>
+          <button class="key" data-letters="4GHI">4 <small>GHI</small></button>
+          <button class="key" data-letters="5JKL">5 <small>JKL</small></button>
+          <button class="key" data-letters="6MNO">6 <small>MNO</small></button>
+
+          <button class="key" data-letters="7PRS">7 <small>PRS</small></button>
+          <button class="key" data-letters="8TUV">8 <small>TUV</small></button>
+          <button class="key" data-letters="9WXY">9 <small>WXY</small></button>
+
+          <button class="key">*</button>
+          <button class="key" data-letters="0-SP">0 <small>-SP</small></button>
+          <button class="key">#</button>
+          <button class="key red">X</button>
+          <button class="key yellow">&lt;</button>
+          <button class="key green">O</button>
+        </div>
+        <div class="model">P400</div>
+      </div>
+      <div class="ridge"></div>
+    </div>
+  </div>
+  <div class="controls">
+    <!-- Input fields -->
+    <div class="card-inputs">
+      <input type="text" id="cardNumber" placeholder="Card Number" maxlength="19">
+      <input type="text" id="cardExpiry" placeholder="Expiration (MM/YY)" maxlength="5">
+      <input type="text" id="cardName" placeholder="Cardholder Name">
+      <input type="number" id="cardValue" placeholder="Card Value ($)">
+    </div>
+
+    <!-- Mode buttons -->
+    <div class="mode-buttons">
+      <button class="key yellow mode-btn" data-mode="credit">Credit</button>
+      <button class="key yellow mode-btn" data-mode="debit">Debit</button>
+      <button class="key yellow mode-btn" data-mode="gift">Gift Card</button>
+    </div>
+
+    <!-- Approve / Deny -->
+    <div class="action-buttons">
+      <button class="key green" id="approveBtn">Approve</button>
+      <button class="key red" id="denyBtn">Deny</button>
+    </div>
+  </div>
   <script src="main.js"></script>
-  <script src="giftcard.js"></script>
-  <script src="status.js"></script>
-  <script src="log.js"></script>
-  <script src="modal.js"></script>
 </body>
