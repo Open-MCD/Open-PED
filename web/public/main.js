@@ -8,6 +8,7 @@ const keys = document.querySelectorAll(".keypad .key");
 
 let selectedMode = null;
 let messageID = ""
+let currentType = null;
 
 let lastKey = null;
 let pressCount = 0;
@@ -31,6 +32,15 @@ function validateInputs() {
   const expiry = document.getElementById("cardExpiry").value.trim();
   const name = document.getElementById("cardName").value.trim();
   const value = document.getElementById("cardValue").value.trim();
+
+  if (currentType === "balance") {
+    // For balance, only check card number and balance value
+    const numOk = /^[0-9]{13,19}$/.test(number.replace(/\s+/g, ""));
+    const valueOk = parseFloat(value) > 0;
+    if (!numOk) return "Invalid card number";
+    if (!valueOk) return "Enter valid balance > 0";
+    return "ok";
+  }
 
   // Luhn-like check for number length
   const numOk = /^[0-9]{13,19}$/.test(number.replace(/\s+/g, ""));
@@ -82,8 +92,13 @@ function connectWebSocket() {
             alt="McDonald's Logo">`;
     } else if (json.type == "payment") {
       messageID = json.id;
+      currentType = "payment";
       document.getElementById("cardValue").value = json.data;
       screen.innerHTML = `<p style="text-align: center;color:white;font-size:30px">Total: ${json.data}</p>`;
+    } else if (json.type == "balance") {
+      messageID = json.id;
+      currentType = "balance";
+      screen.innerHTML = `<p style="text-align: center;color:white;font-size:30px">Checking Balance</p>`;
     } else if (json.type == "pair") {
       messageID = json.id;
       screen.innerHTML = `
@@ -166,6 +181,12 @@ denyBtn.addEventListener("click", () => {
 });
 
 function collectFormData(action) {
+  if (currentType === "balance") {
+    return {
+      balance: parseFloat(document.getElementById("cardValue").value.trim()),
+      cardNumber: document.getElementById("cardNumber").value.trim()
+    };
+  }
   return {
     action,
     mode: selectedMode,

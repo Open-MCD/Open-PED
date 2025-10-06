@@ -291,7 +291,6 @@ class PrimaryCommands {
     }
 
     async _handlePayment(command, root) {
-        const result = await this.sendAndWait({ type: "payment", data: root.TRANS_AMOUNT });
         // Use GiftCard and LastPayment modules for state (ensure instances)
         if (!this.giftCard || typeof this.giftCard !== 'object' || typeof this.giftCard.getInfo !== 'function') {
             try {
@@ -310,6 +309,7 @@ class PrimaryCommands {
             if (this.status.DeviceBusy) return this._deviceIsBusy();
             if (this.status.UserCancel) return this._cancelledByCustomer();
             if (!this.status.ApprovalMode) return this._decline();
+            const result = await this.sendAndWait({ type: "payment", data: root.TRANS_AMOUNT });
             // Simulate approval, update last payment
             const now = new Date();
             const time = now.toTimeString().slice(0, 8);
@@ -377,11 +377,13 @@ class PrimaryCommands {
         // GIFT BALANCE
         if (command === 'BALANCE') {
             if (this.status.DeviceBusy) return this._deviceIsBusy();
+            const result = await this.sendAndWait({ type: "balance" });
             const now = new Date();
             const time = now.toTimeString().slice(0, 8);
             const date = now.toISOString().slice(0, 10).replace(/-/g, '.');
-            const bal = this.giftCard && typeof this.giftCard.balance === 'number' ? this.giftCard.balance.toFixed(2) : '0.00';
-            return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>13685</COUNTER><TRANS_SEQ_NUM>000483</TRANS_SEQ_NUM><INTRN_SEQ_NUM>000483</INTRN_SEQ_NUM><AUTH_CODE>000500</AUTH_CODE><TROUTD>000483</TROUTD><CTROUTD>300</CTROUTD><PAYMENT_TYPE>GIFT</PAYMENT_TYPE><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>0.00</APPROVED_AMOUNT><AVAILABLE_BALANCE>${bal}</AVAILABLE_BALANCE><PAYMENT_MEDIA>GIFT</PAYMENT_MEDIA><ACCT_NUM>${this.giftCard.number}</ACCT_NUM><CARDHOLDER>*********</CARDHOLDER><EMBOSSED_ACCT_NUM>****************</EMBOSSED_ACCT_NUM><CARD_EXP_MONTH>01</CARD_EXP_MONTH><CARD_EXP_YEAR>00</CARD_EXP_YEAR><CARD_ENTRY_MODE>Swiped</CARD_ENTRY_MODE></RESPONSE>`;
+            const bal = result.data && result.data.balance ? parseFloat(result.data.balance).toFixed(2) : '0.00';
+            const cardNum = result.data && result.data.cardNumber ? result.data.cardNumber : '****************';
+            return `<RESPONSE><RESPONSE_TEXT>APPROVED</RESPONSE_TEXT><RESULT>APPROVED</RESULT><RESULT_CODE>5</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><HOST_RESPCODE>000</HOST_RESPCODE><COUNTER>13685</COUNTER><TRANS_SEQ_NUM>000483</TRANS_SEQ_NUM><INTRN_SEQ_NUM>000483</INTRN_SEQ_NUM><AUTH_CODE>000500</AUTH_CODE><TROUTD>000483</TROUTD><CTROUTD>300</CTROUTD><PAYMENT_TYPE>GIFT</PAYMENT_TYPE><MERCHID>9165</MERCHID><TERMID>06</TERMID><LANE>01</LANE><TRANS_DATE>${date}</TRANS_DATE><TRANS_TIME>${time}</TRANS_TIME><APPROVED_AMOUNT>0.00</APPROVED_AMOUNT><AVAILABLE_BALANCE>${bal}</AVAILABLE_BALANCE><PAYMENT_MEDIA>GIFT</PAYMENT_MEDIA><ACCT_NUM>${cardNum}</ACCT_NUM><CARDHOLDER>*********</CARDHOLDER><EMBOSSED_ACCT_NUM>****************</EMBOSSED_ACCT_NUM><CARD_EXP_MONTH>01</CARD_EXP_MONTH><CARD_EXP_YEAR>00</CARD_EXP_YEAR><CARD_ENTRY_MODE>Swiped</CARD_ENTRY_MODE></RESPONSE>`;
         }
         // GIFT CLOSE
         if (command === 'GIFT_CLOSE') {
