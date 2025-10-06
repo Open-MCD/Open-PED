@@ -226,7 +226,7 @@ class PrimaryCommands {
 
     // Stubs for GIFT, VOID, CREDIT (to be expanded)
 
-    _handleDevice(command, root) {
+    async _handleDevice(command, root) {
         if (command === 'VERSION') {
             return '<RESPONSE><RESPONSE_TEXT>Version Information Captured</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>12101</COUNTER><VERSION_INFO>RDI Simulator.  Better than the real thing</VERSION_INFO></RESPONSE>';
         }
@@ -245,6 +245,27 @@ class PrimaryCommands {
             } catch { }
             return `<RESPONSE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>1</COUNTER><RESULT_CODE>-1</RESULT_CODE><RESULT>OK</RESULT><PARAM>${param}</PARAM></RESPONSE>`;
         }
+
+        if (command === 'CHARITY') {
+            var result = await this.sendAndWait({
+                type: "charity", data: {
+                    text1: root.DISPLAY_TEXT1,
+                    text2: root.DISPLAY_TEXT2,
+                    text3: root.DISPLAY_TEXT3,
+                    amount1: root.AMOUNT1,
+                    amount2: root.AMOUNT2,
+                }
+            });
+
+            if(result.data.response === root.AMOUNT1) {
+                return `<RESPONSE><RESPONSE_TEXT>SUCCESS</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>12099</COUNTER><AMOUNT_DATA>1</AMOUNT_DATA></RESPONSE>`
+            }
+            else {
+                return `<RESPONSE><RESPONSE_TEXT>SUCCESS</RESPONSE_TEXT><RESULT>OK</RESULT><RESULT_CODE>-1</RESULT_CODE><TERMINATION_STATUS>SUCCESS</TERMINATION_STATUS><COUNTER>12099</COUNTER><AMOUNT_DATA>0</AMOUNT_DATA></RESPONSE>`
+            }
+
+        }
+
         return this._unknownError();
     }
 

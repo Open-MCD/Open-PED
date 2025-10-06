@@ -108,6 +108,25 @@ function connectWebSocket() {
         screen.innerHTML = `<img src="https://upload.wikimedia.org/wikipedia/commons/3/36/McDonald%27s_Golden_Arches.svg"
             alt="McDonald's Logo">`;
       }, 2000);
+    } else if(json.type == "charity") {
+      messageID = json.id;
+      screen.innerHTML = `
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%;">
+          <p style="color: white; font-size: 24px; text-align: center;">
+            ${json.data.text1}
+          </p>
+          <p style="color: white; font-size: 24px; text-align: center;">
+            ${json.data.text2}
+          </p>
+          <p style="color: white; font-size: 24px; text-align: center;">
+            ${json.data.text3}
+          </p>
+          <div style="display: flex; gap: 20px;">
+            <button class="charity-btn" onclick="sendToServer({response: '${json.data.amount1}'})">${json.data.amount1}</button>
+            <button class="charity-btn" onclick="sendToServer({response: '${json.data.amount2}'})">${json.data.amount2}</button>
+          </div>
+        </div>
+      `;
     }
     else {
       screen.innerHTML = `<p style="text-align: center;color:cyan;">${event.data}</p>`;
