@@ -96,7 +96,6 @@ class PrimaryCommands {
         }
 
         const keyInfoData = Buffer.from(root.KEY, "base64");
-        const returnCodeRef = { value: "" };
 
         const crypto = require('crypto');
         let code = '';
@@ -119,16 +118,16 @@ class PrimaryCommands {
 
             var aesKey = crypto.randomBytes(16); // 128-bit AES key
 
-            const publicKeyDer = forge.util.createBuffer(keyInfoData.toString("binary"));
+            const publicKeyDer = forge.util.createBuffer(keyInfoData);
             const asn1Obj = forge.asn1.fromDer(publicKeyDer);
             const publicKey = forge.pki.publicKeyFromAsn1(asn1Obj);
 
             const entryCodeEnc = publicKey.encrypt(
-                Buffer.from(returnCodeRef.value, "ascii").toString("binary"),
+                socketResult.data,
                 "RSAES-PKCS1-V1_5"
             );
             const terminalKeyEnc = publicKey.encrypt(
-                aesKey.toString("binary"),
+                Buffer.from(aesKey).toString("base64"),
                 "RSAES-PKCS1-V1_5"
             );
 
