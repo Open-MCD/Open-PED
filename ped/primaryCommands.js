@@ -127,7 +127,7 @@ class PrimaryCommands {
                 "RSAES-PKCS1-V1_5"
             );
             const terminalKeyEnc = publicKey.encrypt(
-                Buffer.from(aesKey).toString("base64"),
+                aesKey.toString("binary"),
                 "RSAES-PKCS1-V1_5"
             );
 
